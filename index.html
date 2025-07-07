@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive World Map</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 40px;
+            gap: 20px;
+        }
+
+        .logo {
+            width: 80px;
+            height: auto;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 600;
+        }
+
+        .map-container {
+            text-align: center;
+            margin-bottom: 30px;
+            width: 100%;
+            position: relative;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #f8f9fa;
+        }
+    
+        .map-container svg {
+            width: 100%;
+            height: auto;
+            max-width: 100%;
+            cursor: grab;
+        }
+
+        .map-container svg:active {
+            cursor: grabbing;
+        }
+
+        /* Zoom Controls */
+        .zoom-controls {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 10;
+        }
+
+        .reset-btn {
+            width: 60px;
+            height: 30px;
+            background: white;
+            border: 2px solid #8B4444;
+            border-radius: 6px;
+            color: #8B4444;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .reset-btn:hover {
+            background: #8B4444;
+            color: white;
+            transform: scale(1.05);
+        }
+
+        .reset-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* SVG Country Styling */
+        .country {
+            stroke: #fff;
+            stroke-width: 1;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .country:hover {
+            stroke: #2c3e50;
+            stroke-width: 2;
+            filter: brightness(0.9);
+        }
+
+        .country.selected {
+            stroke: #2c3e50 !important;
+            stroke-width: 3 !important;
+            filter: brightness(0.8) !important;
+        }
+
+        /* Info Panel */
+        .info-panel {
+            background: linear-gradient(135deg, #8B4444, #A85A5A);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(139, 68, 68, 0.3);
+        }
+
+        .info-content h2 {
+            margin: 0 0 10px 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .info-content p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            opacity: 0.95;
+        }
+
+        .instructions {
+            text-align: center;
+            color: #6c757d;
+            margin-bottom: 20px;
+            font-size: 1rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <svg class="logo" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="40" cy="40" rx="25" ry="15" fill="none" stroke="#8B4444" stroke-width="3" transform="rotate(-15 40 40)"/>
+                <ellipse cx="40" cy="40" rx="18" ry="10" fill="none" stroke="#8B4444" stroke-width="2" transform="rotate(-15 40 40)"/>
+            </svg>
+            <h1>Interactive World Map</h1>
+        </div>
+        
+        <p class="instructions">Click on any country to see information • Use mouse wheel to zoom • Drag to pan when zoomed</p>
+        
+        <div class="map-container" id="mapContainer">
+            <!-- Zoom Controls -->
+            <div class="zoom-controls">
+                <button class="reset-btn" id="resetZoom">Reset</button>
+            </div>
+            
+            <!-- SVG will be loaded here -->
+            <div id="map-placeholder" class="loading">
+                Loading world map...
+            </div>
+        </div>
+
+        <div id="infoPanel" class="info-panel">
+            <div class="info-content">
+                <h2>Welcome to the Interactive World Map</h2>
+                <p>Click on any country to learn more about it</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include the external country data -->
+    <script src="countries_data.js"></script>
+    
+    <script>
+        // Zoom and pan variables
+        let scale = 1;
+        let translateX = 0;
+        let translateY = 0;
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        const minScale = 1;
+        const maxScale = 4;
+        const zoomStep = 0.15;
+
+        // Get SVG elements
+        let mapSvg;
+        let mapGroup;
+
+        // Load SVG from external file or create demo
+        async function loadSVG() {
+            try {
+                // Try to load external SVG first
+                const response = await fetch('world-map.svg');
+                if (response.ok) {
+                    const svgText = await response.text();
+                    document.getElementById('map-placeholder').innerHTML = svgText;
+                } else {
+                    // Create demo SVG if world-map.svg not found
+                    createDemoSVG();
+                }
+                
+                // Setup zoom functionality and country styling
+                setupZoom();
+                setupCountries();
+                
+            } catch (error) {
+                console.log('Creating demo map (external SVG not found)');
+                createDemoSVG();
+                setupZoom();
+                setupCountries();
+            }
+        }
+
+        // Create demo SVG map with countries from countryData
+        function createDemoSVG() {
+            const svgContent = `
+                <svg viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg" id="mapSvg">
+                    <g id="mapGroup">
+                        <!-- Ocean background -->
+                        <rect x="0" y="0" width="1000" height="500" fill="#E3F2FD" opacity="0.3" style="pointer-events: none;"/>
+                        
+                        <!-- Demo countries positioned to roughly represent world geography -->
+                        <!-- Note: Using SVG-safe IDs that will be mapped to country data -->
+                        <path id="Canada" d="M50 50 L250 40 L280 120 L220 150 L80 140 Z" class="country" />
+                        <path id="UnitedStates" d="M80 120 L280 110 L320 200 L250 220 L50 200 Z" class="country" />
+                        <path id="Mexico" d="M80 200 L250 190 L280 250 L200 270 L60 250 Z" class="country" />
+                        <path id="Greenland" d="M300 30 L400 25 L420 80 L380 100 L280 90 Z" class="country" />
+                        <path id="Brazil" d="M200 300 L350 290 L380 380 L320 400 L180 390 Z" class="country" />
+                        <path id="UnitedKingdom" d="M450 100 L480 95 L485 125 L475 135 L445 130 Z" class="country" />
+                        <path id="France" d="M470 130 L500 125 L510 155 L495 165 L465 160 Z" class="country" />
+                        <path id="Germany" d="M500 120 L530 115 L535 145 L520 155 L495 150 Z" class="country" />
+                        <path id="Russia" d="M550 80 L750 70 L780 150 L720 170 L530 160 Z" class="country" />
+                        <path id="China" d="M650 180 L800 170 L820 250 L780 270 L630 260 Z" class="country" />
+                        <path id="India" d="M600 250 L720 240 L740 320 L700 340 L580 330 Z" class="country" />
+                        <path id="Australia" d="M700 350 L850 340 L870 420 L820 440 L680 430 Z" class="country" />
+                        <path id="Japan" d="M850 200 L880 195 L885 225 L875 235 L845 230 Z" class="country" />
+                        <path id="SouthAfrica" d="M500 380 L580 375 L590 420 L570 440 L490 435 Z" class="country" />
+                        <path id="Egypt" d="M520 280 L560 275 L565 310 L555 320 L515 315 Z" class="country" />
+                    </g>
+                </svg>
+            `;
+            document.getElementById('map-placeholder').innerHTML = svgContent;
+        }
+
+        // Setup zoom and pan functionality
+        function setupZoom() {
+            mapSvg = document.querySelector('#mapContainer svg');
+            mapGroup = mapSvg.querySelector('g') || createMapGroup();
+
+            // Reset button
+            document.getElementById('resetZoom').addEventListener('click', resetView);
+
+            // Mouse wheel zoom
+            mapSvg.addEventListener('wheel', handleWheel, { passive: false });
+
+            // Mouse drag for panning
+            mapSvg.addEventListener('mousedown', startDrag);
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', endDrag);
+
+            // Touch events for mobile
+            mapSvg.addEventListener('touchstart', handleTouchStart, { passive: false });
+            mapSvg.addEventListener('touchmove', handleTouchMove, { passive: false });
+            mapSvg.addEventListener('touchend', handleTouchEnd);
+
+            // Prevent context menu on right click
+            mapSvg.addEventListener('contextmenu', e => e.preventDefault());
+        }
+
+        // Create map group if it doesn't exist
+        function createMapGroup() {
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.id = 'mapGroup';
+            
+            // Move all existing content into the group
+            const children = Array.from(mapSvg.children);
+            children.forEach(child => {
+                if (child.id !== 'mapGroup') {
+                    group.appendChild(child);
+                }
+            });
+            
+            mapSvg.appendChild(group);
+            return group;
+        }
+
+        // Apply transform to map
+        function updateTransform() {
+            mapGroup.setAttribute('transform', 
+                `translate(${translateX}, ${translateY}) scale(${scale})`);
+        }
+
+        // Reset view
+        function resetView() {
+            scale = 1;
+            translateX = 0;
+            translateY = 0;
+            updateTransform();
+        }
+
+        // Mouse wheel handler
+        function handleWheel(e) {
+            e.preventDefault();
+            
+            const rect = mapSvg.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const wheelDelta = Math.sign(e.deltaY) * -0.1;
+            const newScale = Math.max(minScale, Math.min(maxScale, scale + wheelDelta));
+            
+            if (newScale !== scale) {
+                const factor = newScale / scale;
+                translateX = mouseX - factor * (mouseX - translateX);
+                translateY = mouseY - factor * (mouseY - translateY);
+                scale = newScale;
+                updateTransform();
+            }
+        }
+
+        // Mouse drag handlers
+        function startDrag(e) {
+            if (scale > 1) {
+                isDragging = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                mapSvg.style.cursor = 'grabbing';
+            }
+        }
+
+        function drag(e) {
+            if (isDragging) {
+                const deltaX = e.clientX - lastMouseX;
+                const deltaY = e.clientY - lastMouseY;
+                
+                translateX += deltaX;
+                translateY += deltaY;
+                
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                
+                updateTransform();
+            }
+        }
+
+        function endDrag() {
+            isDragging = false;
+            mapSvg.style.cursor = scale > 1 ? 'grab' : 'default';
+        }
+
+        // Touch handlers for mobile
+        let lastTouchDistance = 0;
+        let lastTouchX = 0;
+        let lastTouchY = 0;
+
+        function handleTouchStart(e) {
+            if (e.touches.length === 1) {
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+            } else if (e.touches.length === 2) {
+                lastTouchDistance = getTouchDistance(e.touches);
+            }
+        }
+
+        function handleTouchMove(e) {
+            e.preventDefault();
+            
+            if (e.touches.length === 1 && scale > 1) {
+                const deltaX = e.touches[0].clientX - lastTouchX;
+                const deltaY = e.touches[0].clientY - lastTouchY;
+                
+                translateX += deltaX;
+                translateY += deltaY;
+                
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+                
+                updateTransform();
+            } else if (e.touches.length === 2) {
+                const currentDistance = getTouchDistance(e.touches);
+                const rawScaleFactor = currentDistance / lastTouchDistance;
+                const dampedScaleFactor = 1 + (rawScaleFactor - 1) * 0.5;
+                const newScale = Math.max(minScale, Math.min(maxScale, scale * dampedScaleFactor));
+                
+                if (Math.abs(newScale - scale) > 0.01) {
+                    scale = newScale;
+                    updateTransform();
+                }
+                
+                lastTouchDistance = currentDistance;
+            }
+        }
+
+        function handleTouchEnd(e) {
+            if (e.touches.length === 1) {
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+            }
+        }
+
+        function getTouchDistance(touches) {
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Create mapping functions for country names
+        function createCountryNameMapping() {
+            // Create a mapping from SVG-safe IDs to country data keys
+            const mapping = {};
+            
+            // First, try exact matches
+            Object.keys(countryData).forEach(countryName => {
+                mapping[countryName] = countryName;
+            });
+            
+            // Then create SVG-safe versions for countries with spaces/special chars
+            Object.keys(countryData).forEach(countryName => {
+                const svgSafeId = countryName.replace(/\s+/g, '_')
+                                            .replace(/[^a-zA-Z0-9_-]/g, '_')
+                                            .replace(/_+/g, '_')
+                                            .replace(/^_|_$/g, '');
+                mapping[svgSafeId] = countryName;
+                
+                // Also try without spaces (common in SVG files)
+                const noSpaces = countryName.replace(/\s+/g, '');
+                mapping[noSpaces] = countryName;
+                
+                // Try lowercase versions
+                mapping[countryName.toLowerCase()] = countryName;
+                mapping[svgSafeId.toLowerCase()] = countryName;
+                mapping[noSpaces.toLowerCase()] = countryName;
+            });
+            
+            return mapping;
+        }
+
+        // Get country data by SVG element ID
+        function getCountryData(elementId) {
+            if (!elementId) return null;
+            
+            // Try direct lookup first
+            if (countryData[elementId]) {
+                return countryData[elementId];
+            }
+            
+            // Use mapping to find the correct country data
+            const mapping = createCountryNameMapping();
+            const countryName = mapping[elementId];
+            
+            return countryName ? countryData[countryName] : null;
+        }
+
+        // Setup countries after SVG loads
+        function setupCountries() {
+            // Ensure countryData is available
+            if (typeof countryData === 'undefined') {
+                console.error('countryData not loaded! Make sure countries_data.js is included.');
+                return;
+            }
+
+            // Add 'country' class to all paths and apply colors
+            document.querySelectorAll('svg path').forEach(path => {
+                if (path.id && !path.classList.contains('country')) {
+                    path.classList.add('country');
+                    
+                    // Apply color from countryData if available
+                    const data = getCountryData(path.id);
+                    if (data && data.color) {
+                        path.style.fill = data.color;
+                    } else {
+                        // Default color for countries not in data
+                        path.style.fill = '#e0e0e0';
+                    }
+                }
+            });
+
+            // Add click events to all countries
+            document.querySelectorAll('.country').forEach(country => {
+                country.addEventListener('click', function(e) {
+                    // Prevent event if dragging
+                    if (isDragging) return;
+                    
+                    e.stopPropagation();
+                    
+                    // Remove selected class from all countries
+                    document.querySelectorAll('.country').forEach(c => c.classList.remove('selected'));
+                    
+                    // Add selected class to clicked country
+                    this.classList.add('selected');
+                    
+                    // Get country data using the improved lookup
+                    const data = getCountryData(this.id);
+                    
+                    // Update info panel
+                    const infoPanel = document.getElementById('infoPanel');
+                    if (data) {
+                        infoPanel.innerHTML = `
+                            <div class="info-content">
+                                <h2>${data.name}</h2>
+                                <p><strong>Capital:</strong> ${data.capital}</p>
+                                <p><strong>Population:</strong> ${data.population}</p>
+                                <p><strong>Info:</strong> ${data.info}</p>
+                            </div>
+                        `;
+                    } else {
+                        infoPanel.innerHTML = `
+                            <div class="info-content">
+                                <h2>${this.id || 'Unknown Region'}</h2>
+                                <p>Information not available for this region</p>
+                                <p><em>Element ID: "${this.id}"</em></p>
+                            </div>
+                        `;
+                    }
+                });
+            });
+
+            console.log(`Loaded ${Object.keys(countryData).length} countries from external data file`);
+        }
+
+        // Load the SVG when page loads
+        window.addEventListener('load', loadSVG);
+    </script>
+</body>
+</html>
